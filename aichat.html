@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Interface</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/github.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #e8f0f2;
+            margin: 0;
+            padding: 0;
+        }
+        .navbar {
+            background-color: #4caf50;
+            overflow: hidden;
+            padding: 10px 20px;
+            color: #fff;
+        }
+        .navbar h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .content {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #chat-container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+        }
+        #user-input {
+            width: calc(100% - 120px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        #send-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4caf50;
+            color: #ffffff;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-left: 10px;
+        }
+        #send-button:hover {
+            background-color: #45a049;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+        .user-message {
+            background-color: #d4f1f4;
+            text-align: right;
+        }
+        .bot-message {
+            background-color: #e3e1e4;
+            text-align: left;
+        }
+        .code-block {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: 'Courier New', Courier, monospace;
+            overflow-x: auto;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            margin-right: 10px;
+        }
+        select, input[type="number"] {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>AI Chat Interface</h1>
+    </div>
+    <div class="content">
+        <div class="form-group">
+            <label for="model-select">Model:</label>
+            <select id="model-select">
+                {% for model in models %}
+                    <option value="{{ model }}">{{ model }}</option>
+                {% endfor %}
+            </select>
+            <label for="temperature">Temperature:</label>
+            <input type="number" id="temperature" min="0" max="1" step="0.1" value="0.5">
+        </div>
+        <div id="chat-container"></div>
+        <div class="form-group">
+            <textarea id="user-input" rows="3" placeholder="Type your message..."></textarea>
+            <button id="send-button">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const modelSelect = document.getElementById('model-select');
+        const temperatureInput = document.getElementById('temperature');
+
+        function formatMessage(content) {
+            const codeBlockRegex = /```[\s\S]*?```/g;
+            const parts = content.split(codeBlockRegex);
+            const codeBlocks = content.match(codeBlockRegex) || [];
+            
+            let formattedContent = '';
+            parts.forEach((part, index) => {
+                if (part.trim()) {
+                    formattedContent += `<div>${marked.parse(part)}</div>`;
+                }
+                if (codeBlocks[index]) {
+                    const code = codeBlocks[index].replace(/```/g, '').trim();
+                    formattedContent += `<pre><code class="code-block">${hljs.highlightAuto(code).value}</code></pre>`;
+                }
+            });
+            return formattedContent;
+        }
+
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            messageDiv.innerHTML = formatMessage(content);
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function sendMessage() {
+            const message = userInput.value.trim();
+            if (message) {
+                addMessage(message, true);
+                userInput.value = '';
+
+                const eventSource = new EventSource(`/chat?message=${encodeURIComponent(message)}&model=${encodeURIComponent(modelSelect.value)}&temperature=${temperatureInput.value}`);
+                
+                let botResponse = '';
+                eventSource.onmessage = function(event) {
+                    botResponse += event.data;
+                    const botMessageDiv = document.querySelector('.bot-message:last-child') || document.createElement('div');
+                    botMessageDiv.className = 'message bot-message';
+                    botMessageDiv.innerHTML = formatMessage(botResponse);
+                    
+                    if (!botMessageDiv.parentNode) {
+                        chatContainer.appendChild(botMessageDiv);
+                    }
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                };
+
+                eventSource.onerror = function() {
+                    eventSource.close();
+                };
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
